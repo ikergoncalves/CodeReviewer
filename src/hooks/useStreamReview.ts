@@ -2,7 +2,7 @@ import { useCallback, useRef, useState } from 'react'
 import { streamReview } from '@/api/review'
 import type { Issue, Language, Severity } from '@/lib/types'
 
-type Status = 'idle' | 'streaming' | 'done' | 'error'
+export type Status = 'idle' | 'streaming' | 'done' | 'error'
 
 interface State {
   status: Status
