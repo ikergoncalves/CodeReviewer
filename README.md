@@ -4,10 +4,10 @@
 > detection, and severity badges — built with React, TypeScript, and Claude API.
 
 ![CI](https://github.com/ikergoncalves/CodeReviewer/actions/workflows/ci.yml/badge.svg)
-[![Vercel](https://img.shields.io/badge/deploy-vercel-black)](https://code-reviewer.vercel.app)
+[![Vercel](https://img.shields.io/badge/deploy-vercel-black)](https://codereviewer-eight.vercel.app)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-[Live Demo](https://code-reviewer.vercel.app) · [Report Bug](https://github.com/ikergoncalves/CodeReviewer/issues)
+[Live Demo](https://codereviewer-eight.vercel.app) · [Report Bug](https://github.com/ikergoncalves/CodeReviewer/issues)
 
 ---
 
@@ -131,7 +131,7 @@ npm run lint              # ESLint (zero warnings)
 2. Import the repo in [Vercel](https://vercel.com)
 3. Add environment variables:
    - `ANTHROPIC_API_KEY` — your Anthropic key
-   - `FRONTEND_URL` — your Vercel deployment URL (e.g. `https://code-reviewer.vercel.app`)
+   - `FRONTEND_URL` — your Vercel deployment URL (e.g. `https://codereviewer-eight.vercel.app`)
 4. Deploy
 
 ---
