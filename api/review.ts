@@ -1,9 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk'
+import type { VercelRequest, VercelResponse } from '@vercel/node'
 import type { Language } from '../src/lib/types'
-
-export const config = {
-  runtime: 'edge',
-}
 
 const MODEL = 'claude-sonnet-4-6'
 const MAX_TOKENS = 2048
@@ -53,101 +50,83 @@ interface ReviewRequestBody {
   language?: unknown
 }
 
-// Per-instance rate-limit store. Resets whenever the Edge Function instance is
-// recycled, so this is best-effort throttling, not a global guarantee.
+// Per-instance rate-limit store. Resets whenever the Serverless Function
+// instance is recycled, so this is best-effort throttling, not a global
+// guarantee.
 const rateLimits = new Map<string, { count: number; resetAt: number }>()
 
-export default async function handler(request: Request): Promise<Response> {
-  const cors = corsHeaders()
+export default async function handler(
+  req: VercelRequest,
+  res: VercelResponse,
+): Promise<void> {
+  applyCors(res)
 
-  if (request.method === 'OPTIONS') {
-    return new Response(null, { status: 204, headers: cors })
+  if (req.method === 'OPTIONS') {
+    res.status(204).end()
+    return
   }
 
-  if (request.method !== 'POST') {
-    return jsonResponse({ error: 'Method not allowed' }, 405, cors)
+  if (req.method !== 'POST') {
+    res.status(405).json({ error: 'Method not allowed' })
+    return
   }
 
   const apiKey = process.env.ANTHROPIC_API_KEY
   if (!apiKey) {
-    return jsonResponse({ error: 'ANTHROPIC_API_KEY is not configured' }, 500, cors)
+    res.status(500).json({ error: 'ANTHROPIC_API_KEY is not configured' })
+    return
   }
 
-  const ip = clientIp(request)
+  const ip = clientIp(req)
   if (!withinRateLimit(ip)) {
-    return jsonResponse(
-      { error: 'Rate limit exceeded. Try again in a minute.' },
-      429,
-      cors,
-    )
+    res.status(429).json({ error: 'Rate limit exceeded. Try again in a minute.' })
+    return
   }
 
-  let body: ReviewRequestBody
-  try {
-    body = (await request.json()) as ReviewRequestBody
-  } catch {
-    return jsonResponse({ error: 'Request body must be valid JSON' }, 400, cors)
-  }
-
-  const validation = validate(body)
+  const validation = validate((req.body ?? {}) as ReviewRequestBody)
   if ('error' in validation) {
-    return jsonResponse({ error: validation.error }, 400, cors)
+    res.status(400).json({ error: validation.error })
+    return
   }
   const { code, language } = validation
 
   const client = new Anthropic({ apiKey })
-  const encoder = new TextEncoder()
 
-  const readable = new ReadableStream<Uint8Array>({
-    async start(controller) {
-      try {
-        const stream = client.messages.stream({
-          model: MODEL,
-          max_tokens: MAX_TOKENS,
-          system: SYSTEM_PROMPT,
-          messages: [
-            {
-              role: 'user',
-              content: `Language: ${language}\n\nCode:\n\`\`\`${language}\n${code}\n\`\`\``,
-            },
-          ],
-        })
+  res.setHeader('Content-Type', 'text/event-stream')
+  res.setHeader('Cache-Control', 'no-cache')
+  res.setHeader('X-Accel-Buffering', 'no')
+  res.flushHeaders()
 
-        for await (const event of stream) {
-          if (
-            event.type === 'content_block_delta' &&
-            event.delta.type === 'text_delta'
-          ) {
-            controller.enqueue(
-              encoder.encode(
-                `data: ${JSON.stringify({ chunk: event.delta.text })}\n\n`,
-              ),
-            )
-          }
-        }
+  try {
+    const stream = client.messages.stream({
+      model: MODEL,
+      max_tokens: MAX_TOKENS,
+      system: SYSTEM_PROMPT,
+      messages: [
+        {
+          role: 'user',
+          content: `Language: ${language}\n\nCode:\n\`\`\`${language}\n${code}\n\`\`\``,
+        },
+      ],
+    })
 
-        controller.enqueue(encoder.encode('data: [DONE]\n\n'))
-      } catch (error) {
-        const message =
-          error instanceof Error ? error.message : 'Unexpected streaming error'
-        controller.enqueue(
-          encoder.encode(`data: ${JSON.stringify({ error: message })}\n\n`),
-        )
-      } finally {
-        controller.close()
+    for await (const event of stream) {
+      if (
+        event.type === 'content_block_delta' &&
+        event.delta.type === 'text_delta'
+      ) {
+        res.write(`data: ${JSON.stringify({ chunk: event.delta.text })}\n\n`)
       }
-    },
-  })
+    }
 
-  return new Response(readable, {
-    status: 200,
-    headers: {
-      ...cors,
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
-      'X-Accel-Buffering': 'no',
-    },
-  })
+    res.write('data: [DONE]\n\n')
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : 'Unexpected streaming error'
+    res.write(`data: ${JSON.stringify({ error: message })}\n\n`)
+  } finally {
+    res.end()
+  }
 }
 
 type ValidationResult =
@@ -183,9 +162,10 @@ function validate(body: ReviewRequestBody): ValidationResult {
   return { code, language: body.language as Language }
 }
 
-function clientIp(request: Request): string {
-  const forwarded = request.headers.get('x-forwarded-for')
-  return forwarded?.split(',')[0]?.trim() ?? 'unknown'
+function clientIp(req: VercelRequest): string {
+  const forwarded = req.headers['x-forwarded-for']
+  const value = Array.isArray(forwarded) ? forwarded[0] : forwarded
+  return value?.split(',')[0]?.trim() ?? 'unknown'
 }
 
 function withinRateLimit(ip: string): boolean {
@@ -205,26 +185,13 @@ function withinRateLimit(ip: string): boolean {
   return true
 }
 
-function corsHeaders(): Record<string, string> {
+function applyCors(res: VercelResponse): void {
   const origin =
     process.env.NODE_ENV !== 'production'
       ? '*'
       : (process.env.FRONTEND_URL ?? '*')
 
-  return {
-    'Access-Control-Allow-Origin': origin,
-    'Access-Control-Allow-Methods': 'POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type',
-  }
-}
-
-function jsonResponse(
-  data: unknown,
-  status: number,
-  cors: Record<string, string>,
-): Response {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: { ...cors, 'Content-Type': 'application/json' },
-  })
+  res.setHeader('Access-Control-Allow-Origin', origin)
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS')
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
 }
