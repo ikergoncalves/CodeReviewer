@@ -31,7 +31,11 @@ export function ReviewPanel({
   onReset,
 }: ReviewPanelProps) {
   return (
-    <div className="relative flex h-full min-h-0 flex-col bg-slate-950">
+    <div
+      role="region"
+      aria-label="Code review results"
+      className="relative flex h-full min-h-0 flex-col bg-slate-950"
+    >
       {status === 'streaming' && <ProgressBar />}
       <div className="min-h-0 flex-1 overflow-y-auto p-4">
         {status === 'idle' && <IdleState />}
@@ -49,6 +53,11 @@ export function ReviewPanel({
         )}
         {status === 'error' && <ErrorState error={error} onReset={onReset} />}
       </div>
+      {status === 'done' && (
+        <div role="status" aria-live="polite" className="sr-only">
+          Review complete: {issues.length} issues found
+        </div>
+      )}
     </div>
   )
 }
@@ -97,7 +106,12 @@ function StreamingState({
       <h2 className="animated-ellipsis text-lg font-semibold text-slate-200">
         Analyzing your code
       </h2>
-      <ul className="mt-4 space-y-3">
+      <ul
+        role="list"
+        aria-live="polite"
+        aria-atomic="false"
+        className="mt-4 space-y-3"
+      >
         {issues.map((issue, index) => (
           <IssueCard
             key={`${issue.line}-${index}`}
@@ -181,7 +195,7 @@ function DoneState({
           No issues found.
         </p>
       ) : (
-        <ul className="mt-4 space-y-3">
+        <ul role="list" className="mt-4 space-y-3">
           {issues.map((issue, index) => (
             <IssueCard
               key={`${issue.line}-${index}`}
@@ -238,6 +252,7 @@ function IssueCard({
 
   return (
     <li
+      role="listitem"
       className={cn(
         'rounded-lg border border-slate-800 bg-slate-900/60 p-3',
         animate && 'animate-fade-up',
